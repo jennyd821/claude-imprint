@@ -24,11 +24,15 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = str(os.environ.get("TELEGRAM_CHAT_ID", ""))
 PROJECT_DIR = Path(__file__).parent.parent.parent
 CLAUDE_BIN = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
+SESSION_FILE = PROJECT_DIR / "data" / "telegram_session.txt"
+
+BATCH_DELAY = 4  # seconds to wait for more messages before responding
 
 SYSTEM_PREFIX = (
-    "You are a helpful assistant responding via Telegram. "
-    "You have full permission to use all available MCP tools (memory, etc.) directly without asking for authorization. "
-    "Just use the tools and respond naturally. Keep responses concise.\n\n"
+    "You are responding via Telegram. "
+    "Use all available MCP tools freely without asking for authorization. "
+    "Be natural and casual — short replies, no bullet points, no periods at the end, "
+    "don't overuse emojis. Match the user's energy.\n\n"
     "User message: "
 )
 
@@ -63,14 +67,31 @@ def typing_loop(stop_event: threading.Event) -> None:
         stop_event.wait(4)
 
 
+def load_session() -> str | None:
+    if SESSION_FILE.exists():
+        s = SESSION_FILE.read_text().strip()
+        return s if s else None
+    return None
+
+
+def save_session(sid: str) -> None:
+    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SESSION_FILE.write_text(sid)
+
+
 def run_claude(message: str) -> str:
     full_prompt = SYSTEM_PREFIX + message
+    session_id = load_session()
+
     cmd = [
         CLAUDE_BIN,
         "-p", full_prompt,
-        "--output-format", "text",
+        "--output-format", "json",
         "--permission-mode", "auto",
     ]
+
+    if session_id:
+        cmd.extend(["--resume", session_id])
 
     env = {**os.environ}
     env.pop("CLAUDECODE", None)
@@ -84,28 +105,61 @@ def run_claude(message: str) -> str:
             cwd=str(PROJECT_DIR),
             env=env,
         )
-        return result.stdout.strip() or "（无回复）"
+        output = result.stdout.strip()
+        try:
+            data = json.loads(output)
+            new_sid = data.get("session_id")
+            if new_sid:
+                save_session(new_sid)
+            return data.get("result", "").strip() or "（无回复）"
+        except json.JSONDecodeError:
+            return output or "（无回复）"
     except subprocess.TimeoutExpired:
-        return "超时了，请重试。"
+        return "超时了，请重试"
     except Exception as e:
         return f"错误：{e}"
 
 
-def handle_message(text: str) -> None:
-    ts = time.strftime("%H:%M:%S")
-    print(f"[{ts}] Received: {text[:60]}")
+class MessageBatcher:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._messages: list[str] = []
+        self._timer: threading.Timer | None = None
 
-    stop_typing = threading.Event()
-    t = threading.Thread(target=typing_loop, args=(stop_typing,), daemon=True)
-    t.start()
+    def add(self, text: str) -> None:
+        with self._lock:
+            self._messages.append(text)
+            if self._timer:
+                self._timer.cancel()
+            self._timer = threading.Timer(BATCH_DELAY, self._flush)
+            self._timer.daemon = True
+            self._timer.start()
 
-    response = run_claude(text)
+    def _flush(self) -> None:
+        with self._lock:
+            if not self._messages:
+                return
+            combined = "\n".join(self._messages)
+            self._messages = []
+            self._timer = None
 
-    stop_typing.set()
-    t.join(timeout=1)
+        threading.Thread(target=self._respond, args=(combined,), daemon=True).start()
 
-    send_segments(response)
-    print(f"[{ts}] Replied: {response[:60]}")
+    def _respond(self, text: str) -> None:
+        ts = time.strftime("%H:%M:%S")
+        print(f"[{ts}] Responding to: {text[:80]}")
+
+        stop_typing = threading.Event()
+        t = threading.Thread(target=typing_loop, args=(stop_typing,), daemon=True)
+        t.start()
+
+        response = run_claude(text)
+
+        stop_typing.set()
+        t.join(timeout=1)
+
+        send_segments(response)
+        print(f"[{ts}] Sent: {response[:60]}")
 
 
 def main() -> None:
@@ -115,9 +169,11 @@ def main() -> None:
 
     print("Telegram bot started")
     print(f"  Listening for messages from chat_id: {CHAT_ID}")
+    print(f"  Batch delay: {BATCH_DELAY}s")
     print(f"  Claude: {CLAUDE_BIN}")
     print()
 
+    batcher = MessageBatcher()
     offset = 0
 
     while True:
@@ -139,9 +195,9 @@ def main() -> None:
                 if not text:
                     continue
 
-                threading.Thread(
-                    target=handle_message, args=(text,), daemon=True
-                ).start()
+                ts = time.strftime("%H:%M:%S")
+                print(f"[{ts}] Queued: {text[:60]}")
+                batcher.add(text)
 
         except KeyboardInterrupt:
             print("\nBot stopped")
