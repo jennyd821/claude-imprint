@@ -41,20 +41,10 @@ def send(text: str) -> None:
 
 
 def run_claude(message: str) -> str:
-    mcp_servers: dict = {
-        "imprint-memory": {"command": "imprint-memory", "args": []}
-    }
-    if TELEGRAM_SERVER.exists():
-        mcp_servers["imprint-telegram"] = {
-            "command": "python3",
-            "args": [str(TELEGRAM_SERVER)],
-        }
-
     cmd = [
         CLAUDE_BIN,
         "-p", message,
         "--output-format", "text",
-        "--mcp-config", json.dumps({"mcpServers": mcp_servers}),
         "--permission-mode", "auto",
     ]
 
