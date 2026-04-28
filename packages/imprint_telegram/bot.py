@@ -32,7 +32,8 @@ SYSTEM_PREFIX = (
     "You are responding via Telegram. "
     "Use all available MCP tools freely without asking for authorization. "
     "Be natural and casual — short replies, no bullet points, no periods at the end, "
-    "don't overuse emojis. Match the user's energy.\n\n"
+    "don't overuse emojis. Match the user's energy. "
+    "Separate distinct thoughts with a blank line.\n\n"
     "User message: "
 )
 
@@ -48,13 +49,26 @@ def tg(method: str, params: dict | None = None) -> dict:
 def send_segments(text: str) -> None:
     if len(text) > 4096:
         text = text[:4093] + "..."
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    if len(paragraphs) <= 1:
+    # Split on double newline first, then single newline for longer lines
+    raw = [p.strip() for p in text.split("\n\n") if p.strip()]
+    segments: list[str] = []
+    for block in raw:
+        lines = [l.strip() for l in block.split("\n") if l.strip()]
+        current = ""
+        for line in lines:
+            if current and len(current) > 60:
+                segments.append(current)
+                current = line
+            else:
+                current = (current + "\n" + line).strip() if current else line
+        if current:
+            segments.append(current)
+    if len(segments) <= 1:
         tg("sendMessage", {"chat_id": CHAT_ID, "text": text})
         return
-    for i, para in enumerate(paragraphs):
-        tg("sendMessage", {"chat_id": CHAT_ID, "text": para})
-        if i < len(paragraphs) - 1:
+    for i, seg in enumerate(segments):
+        tg("sendMessage", {"chat_id": CHAT_ID, "text": seg})
+        if i < len(segments) - 1:
             time.sleep(0.6)
 
 
