@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 import urllib.parse
@@ -23,7 +24,13 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = str(os.environ.get("TELEGRAM_CHAT_ID", ""))
 PROJECT_DIR = Path(__file__).parent.parent.parent
 CLAUDE_BIN = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
-TELEGRAM_SERVER = PROJECT_DIR / "packages" / "imprint_telegram" / "server.py"
+
+SYSTEM_PREFIX = (
+    "You are a helpful assistant responding via Telegram. "
+    "You have full permission to use all available MCP tools (memory, etc.) directly without asking for authorization. "
+    "Just use the tools and respond naturally. Keep responses concise.\n\n"
+    "User message: "
+)
 
 
 def tg(method: str, params: dict | None = None) -> dict:
@@ -34,18 +41,26 @@ def tg(method: str, params: dict | None = None) -> dict:
         return json.loads(resp.read())
 
 
-def send(text: str) -> None:
+def send_segments(text: str) -> None:
     if len(text) > 4096:
         text = text[:4093] + "..."
-    tg("sendMessage", {"chat_id": CHAT_ID, "text": text})
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if len(paragraphs) <= 1:
+        tg("sendMessage", {"chat_id": CHAT_ID, "text": text})
+        return
+    for i, para in enumerate(paragraphs):
+        tg("sendMessage", {"chat_id": CHAT_ID, "text": para})
+        if i < len(paragraphs) - 1:
+            time.sleep(0.6)
 
 
-SYSTEM_PREFIX = (
-    "You are a helpful assistant responding via Telegram. "
-    "You have full permission to use all available MCP tools (memory, etc.) directly without asking for authorization. "
-    "Just use the tools and respond naturally. Keep responses concise.\n\n"
-    "User message: "
-)
+def typing_loop(stop_event: threading.Event) -> None:
+    while not stop_event.is_set():
+        try:
+            tg("sendChatAction", {"chat_id": CHAT_ID, "action": "typing"})
+        except Exception:
+            pass
+        stop_event.wait(4)
 
 
 def run_claude(message: str) -> str:
@@ -74,6 +89,23 @@ def run_claude(message: str) -> str:
         return "超时了，请重试。"
     except Exception as e:
         return f"错误：{e}"
+
+
+def handle_message(text: str) -> None:
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] Received: {text[:60]}")
+
+    stop_typing = threading.Event()
+    t = threading.Thread(target=typing_loop, args=(stop_typing,), daemon=True)
+    t.start()
+
+    response = run_claude(text)
+
+    stop_typing.set()
+    t.join(timeout=1)
+
+    send_segments(response)
+    print(f"[{ts}] Replied: {response[:60]}")
 
 
 def main() -> None:
@@ -107,14 +139,9 @@ def main() -> None:
                 if not text:
                     continue
 
-                ts = time.strftime("%H:%M:%S")
-                print(f"[{ts}] Received: {text[:60]}")
-
-                send("⏳ 思考中...")
-                response = run_claude(text)
-                send(response)
-
-                print(f"[{ts}] Replied: {response[:60]}")
+                threading.Thread(
+                    target=handle_message, args=(text,), daemon=True
+                ).start()
 
         except KeyboardInterrupt:
             print("\nBot stopped")
