@@ -40,10 +40,19 @@ def send(text: str) -> None:
     tg("sendMessage", {"chat_id": CHAT_ID, "text": text})
 
 
+SYSTEM_PREFIX = (
+    "You are a helpful assistant responding via Telegram. "
+    "You have full permission to use all available MCP tools (memory, etc.) directly without asking for authorization. "
+    "Just use the tools and respond naturally. Keep responses concise.\n\n"
+    "User message: "
+)
+
+
 def run_claude(message: str) -> str:
+    full_prompt = SYSTEM_PREFIX + message
     cmd = [
         CLAUDE_BIN,
-        "-p", message,
+        "-p", full_prompt,
         "--output-format", "text",
         "--permission-mode", "auto",
     ]
