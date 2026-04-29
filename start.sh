@@ -50,21 +50,15 @@ else
 fi
 
 # ─── 3. Telegram ───
-if is_proc_running "channels plugin:telegram"; then
+if is_running .pid-telegram || is_proc_running "imprint_telegram/bot.py"; then
     echo "   ✓ Telegram already running"
-elif ! command -v claude &>/dev/null; then
-    echo "   - Telegram: claude CLI not found, skip"
+elif [ ! -f packages/imprint_telegram/bot.py ]; then
+    echo "   - Telegram: bot.py not found, skip"
 else
-    echo "   Starting Telegram..."
-    if $IS_MAC; then
-        PROJ="$(pwd)"
-        osascript -e 'tell application "Terminal" to do script "source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; export PATH=\"$HOME/.bun/bin:$HOME/.local/bin:$PATH\"; cd '"$PROJ"' && claude --permission-mode auto --channels plugin:telegram@claude-plugins-official"' 2>/dev/null
-        echo "   ✓ Telegram window opened"
-    else
-        nohup claude --permission-mode auto --channels plugin:telegram@claude-plugins-official > logs/telegram.log 2>&1 &
-        echo $! > .pid-telegram
-        echo "   ✓ Telegram started (PID: $!, log: logs/telegram.log)"
-    fi
+    echo "   Starting Telegram bot..."
+    nohup python3 -u packages/imprint_telegram/bot.py > logs/telegram.log 2>&1 &
+    echo $! > .pid-telegram
+    echo "   ✓ Telegram started (PID: $!, log: logs/telegram.log)"
 fi
 
 # ─── 4. Heartbeat ───
