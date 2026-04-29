@@ -101,7 +101,7 @@ def run_claude(message: str) -> str:
         CLAUDE_BIN,
         "-p", full_prompt,
         "--output-format", "json",
-        "--permission-mode", "bypassPermissions",
+        "--permission-mode", "auto",
     ]
 
     if session_id:
