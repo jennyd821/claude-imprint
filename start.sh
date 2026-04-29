@@ -66,11 +66,7 @@ if is_running .pid-heartbeat; then
     echo "   ✓ Heartbeat already running"
 elif [ -f packages/imprint_heartbeat/agent.py ]; then
     echo "   Starting Heartbeat Agent..."
-    if $IS_MAC && command -v caffeinate &>/dev/null; then
-        nohup caffeinate -i python3 -u packages/imprint_heartbeat/agent.py > logs/agent.log 2>&1 &
-    else
-        nohup python3 -u packages/imprint_heartbeat/agent.py > logs/agent.log 2>&1 &
-    fi
+    nohup python3 -u packages/imprint_heartbeat/agent.py > logs/agent.log 2>&1 &
     echo $! > .pid-heartbeat
     echo "   ✓ Heartbeat started (PID: $!, interval: ${HEARTBEAT_INTERVAL:-900}s)"
 fi
