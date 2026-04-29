@@ -7,6 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p logs
 
+# Ensure bun and local tooling are findable regardless of how this script is launched
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+
 IS_MAC=false
 [[ "$(uname)" == "Darwin" ]] && IS_MAC=true
 
@@ -54,7 +57,8 @@ elif ! command -v claude &>/dev/null; then
 else
     echo "   Starting Telegram..."
     if $IS_MAC; then
-        osascript -e 'tell application "Terminal" to do script "cd '"$(pwd)"' && claude --permission-mode auto --channels plugin:telegram@claude-plugins-official"' 2>/dev/null
+        PROJ="$(pwd)"
+        osascript -e 'tell application "Terminal" to do script "source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; export PATH=\"$HOME/.bun/bin:$HOME/.local/bin:$PATH\"; cd '"$PROJ"' && claude --permission-mode auto --channels plugin:telegram@claude-plugins-official"' 2>/dev/null
         echo "   ✓ Telegram window opened"
     else
         nohup claude --permission-mode auto --channels plugin:telegram@claude-plugins-official > logs/telegram.log 2>&1 &

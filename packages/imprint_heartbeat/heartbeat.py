@@ -135,7 +135,7 @@ async def run_heartbeat():
     # Add telegram send server if available
     if TELEGRAM_SERVER.exists():
         mcp_servers["imprint-telegram"] = {
-            "command": "python3",
+            "command": sys.executable,
             "args": [str(TELEGRAM_SERVER)]
         }
 
